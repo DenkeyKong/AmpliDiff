@@ -1,14 +1,15 @@
 import cython
 import numpy as np
+from libc.stdint cimport int64_t
 cimport cython
 
 @cython.wraparound(False)
-def generate_amplicons_cy(int[:,:] AMPS, int amplicon_width, int num_amps, signed char[:,:] sequences, int[:,:] sequence_pairs, int total_sequence_pairs, int num_sequences, int[:] ids, signed char[:,:] comparison_matrix, long[:] relevant_nucleotides, int num_relevant, int amplicon_threshold):
+def generate_amplicons_cy(int[:,:] AMPS, int amplicon_width, int num_amps, signed char[:,:] sequences, int[:,:] sequence_pairs, int total_sequence_pairs, int num_sequences, int[:] ids, signed char[:,:] comparison_matrix, int64_t[:] relevant_nucleotides, int num_relevant, int amplicon_threshold):
     cdef signed char[:,:,:] diff_tensor = np.zeros((num_amps, num_sequences, num_sequences), dtype=np.int8)
 
     cdef int[:] diffs_cum
     cdef int seq1, seq2, amp, cur_sum, j, cur_index, cur_lb, cur_ub
-    cdef long i
+    cdef int64_t i
 
     for cur_pair in range(total_sequence_pairs):
         seq1 = sequence_pairs[cur_pair][0]
