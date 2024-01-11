@@ -481,57 +481,127 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
         currently_used_primers = []
         all_forward_primers = []
         all_reverse_primers = []
-        covered_sequences = {} # dictionary for sequence coverage: (seq -> (bool, bool)) where bool determines whether there is a primer for that direction (either forward or reverse)
-        # initialization of sequences. Are these the actual sequences or the sequence IDs?
+        covered_sequences = {} # dictionary for sequence coverage: (seq id -> (bool, bool)) where bool determines whether there is a primer for that direction (either forward or reverse)
+        # initialization of sequences. sequences is list of sequence objects.
         for sequence in sequences:
-            # i.e. if this sequence can be differentiated somewhere
-            if np.sum(differences[sequence]) != 0:
-                covered_sequences[sequence] = (False, False)
+            covered_sequences[sequence.id] = (False, False)
         for sequence in amplicon.primers['forward']:
             for primer in amplicon.primers['forward'][sequence]:
                 cur_forward_primer = primer_index.index2primer['forward'][primer]
                 if cur_forward_primer not in all_forward_primers and cur_forward_primer.feasible:
                     # assumption is made here that # sequences that are covered by primer is equal to the number of indices!
-                    # these are already initialized right???
-                    # maybe store primer ids on heap instead, but that is more for optimization
                     heappush(all_forward_primers, (len(cur_forward_primer.indices), cur_forward_primer))
         for sequence in amplicon.primers['reverse']:
             for primer in amplicon.primers['reverse'][sequence]:
                 cur_reverse_primer = primer_index.index2primer['reverse'][primer]
                 if cur_reverse_primer not in all_reverse_primers and cur_reverse_primer.feasible:
                     heappush(all_reverse_primers, (len(cur_reverse_primer.indices), cur_reverse_primer))
-        new_solution = do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, primer_index, differences, sequences)
+        # solution contains only primers, not (amplifiability, primer) tuples
+        new_solution = do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, None, None)
         best_solution = new_solution
         for pert in num_perturbances:
-            new_starting_point = remove_X_primers(best_solution, X_perturbance, amplicon, primer_index, differences, sequence)
-            new_solution = do_search_cycle(new_starting_point, all_forward_primers, all_reverse_primers, covered_sequences, primer_index, differences, sequences)
+            new_starting_point, covered_sequences, all_forward_primers, all_reverse_primers, min_temp, max_temp = remove_X_primers(best_solution, X_perturbance, amplicon, primer_index, sequences)
+            new_solution = do_search_cycle(new_starting_point, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, min_temp, max_temp)
             if len(new_solution) < len(best_solution):
                 best_solution = new_solution
-        return best_solution
+        final_solution = {'forward': [], 'reverse': []}
+        for primer in best_solution:
+            if primer.orientation == 'forward':
+                final_solution['forward'].append(primer)
+            else:
+                final_solution['reverse'].append(primer)
+        properly_covered_sequences = []
+        for seq, covered in covered_sequences.items():
+            if covered[0] and covered[1]:
+                properly_covered_sequences.append(seq)
+        # sadly properly_covered_sequences now has IDs instead of sequences...
+        final_sequences = []
+        for sequence in sequences:
+            if sequence.id in properly_covered_sequences:
+                final_sequences.append(sequence)
+        # assumption is made that solution is always feasible
+        return [True, final_solution, differences, final_sequences]
 
-def do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, differences, sequences):
+def do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, min_temp, max_temp):
     # initially there is no best solution
     best_solution = None
     solution = currently_used_primers
     discarded_forward_primers = []
     discarded_reverse_primers = []
     for loc_search in num_local_search_iterations:
-        while(not is_full_coverage(covered_sequences)):
-            cur_forward_primer = all_forward_primers[0] # peek at top value
-            while(cur_forward_primer[1].is_compatible_with(solution) == False):
-                heappop(all_forward_primers)
-                discarded_forward_primers.append(cur_forward_primer)
-                cur_forward_primer = all_forward_primers[0]
-            cur_reverse_primer = all_reverse_primers[0]
-            while(cur_reverse_primer[1].is_compatible_with(solution) == False):
-                heappop(all_reverse_primers)
-                discarded_reverse_primers.append(cur_reverse_primer)
+        has_feasible_solution = True
+        is_forward_covered, is_reversed_covered = is_full_coverage(covered_sequences)
+        while(not is_forward_covered and not is_reversed_covered):
+            # find compatible forward primer todo: (do we need to find one if we already found all forward primers???)
+            while(not primer_compatibility and not is_forward_covered):
+                cur_forward_primer = all_reverse_primers[0] # peek at top of heap
+                primer_compatibility = True
+                # check for primer primer compatibility
+                for primer in solution:
+                    # assuming that a check_conflict is always assigned and never yields -1
+                    if primer_index.check_conflict((cur_forward_primer[1], primer)) == 1:
+                        primer_compatibility = False
+                        break
+                # do temperature check
+                cur_primer_temp = cur_forward_primer[1].temperature
+                # i.e. this is the first primer we add
+                if max_temp is None:
+                    max_temp = cur_primer_temp
+                    min_temp = cur_primer_temp
+                if (cur_primer_temp - min_temp <= temperature_range) and (max_temp - cur_primer_temp <= temperature_range):
+                    if cur_primer_temp < min_temp:
+                        min_temp = cur_primer_temp
+                    if cur_primer_temp > max_temp:
+                        max_temp = cur_primer_temp
+                else:
+                    primer_compatibility = False
+                    break
+                if not primer_compatibility:
+                    # todo: check here if list is empty to prevent errors, and also look for infeasible solution
+                    heappop(all_forward_primers)
+                    discarded_forward_primers.append(cur_forward_primer)
+            # find compatible reverse primer todo: what if we already have all reverse primers covered
+            primer_compatibility = False
+            while(not primer_compatibility and not is_reversed_covered):
                 cur_reverse_primer = all_reverse_primers[0]
-            if cur_forward_primer[0] > cur_reverse_primer[0]:
+                primer_compatibility = True
+                # check for primer primer compatibility
+                for primer in solution:
+                    if primer_index.check_conflict((cur_reverse_primer[1], primer)) == 1:
+                        primer_compatibility = False
+                        break
+                # do temperature check
+                cur_primer_temp = cur_reverse_primer[1].temperature
+                # i.e. this is the first primer we add
+                if max_temp is None:
+                    max_temp = cur_primer_temp
+                    min_temp = cur_primer_temp
+                if (cur_primer_temp - min_temp <= temperature_range) and (max_temp - cur_primer_temp <= temperature_range):
+                    if cur_primer_temp < min_temp:
+                        min_temp = cur_primer_temp
+                    if cur_primer_temp > max_temp:
+                        max_temp = cur_primer_temp
+                else:
+                    primer_compatibility = False
+                    break
+                if not primer_compatibility:
+                    heappop(all_reverse_primers)
+                    discarded_reverse_primers.append(cur_reverse_primer)
+            # in case all forward primers are already covered
+            if is_forward_covered:
+                heappop(all_reverse_primers)
+                solution.append(cur_reverse_primer[1])
+                for index in cur_reverse_primer[1].indices:
+                    covered_sequences[index[0]][1] = True
+            elif is_reversed_covered:
+                heappop(all_forward_primers)
+                solution.append(cur_forward_primer[1])
+                for index in cur_forward_primer[1].indices:
+                    covered_sequences[index[0]][0] = True
+            elif cur_forward_primer[0] > cur_reverse_primer[0]:
                 heappop(all_forward_primers)
                 # only add the primer, not how many sequences it covers
                 solution.append(cur_forward_primer[1])
-                # assumes that sequences are IDs rather than the sequences themselves!!!
                 for index in cur_forward_primer[1].indices:
                     covered_sequences[index[0]][0] = True # get sequence ID from sequence indices from primer and set those to True
             else:
@@ -539,22 +609,32 @@ def do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_pri
                 solution.append(cur_reverse_primer[1])
                 for index in cur_reverse_primer[1].indices:
                     covered_sequences[index[0]][1] = True
+            is_forward_covered, is_reversed_covered = is_full_coverage(covered_sequences)
             # sort at end, as first loop will always be sorted anyways through either remove_X or the initial heaps creation
             sort_primers_on_amplifiability(all_forward_primers, all_reverse_primers, covered_sequences)
-        if (best_solution is None) or (len(solution) < len(best_solution.size)):
-            best_solution = solution
-        solution = remove_X_primers(best_solution, X_local_search, amplicon, primer_index, differences, sequences)
+        if has_feasible_solution and ((best_solution is None) or (len(solution) < len(best_solution.size))):
+                best_solution = solution
+        # if there is no feasible solution, simply look at best solution again
+        # is it possible to reassign all_forward_primers like this??? same for max_temp and min_temp
+        solution, covered_sequences, all_forward_primers, all_reverse_primers, min_temp, max_temp = remove_X_primers(best_solution, X_local_search, amplicon, primer_index, sequences)
     return best_solution
 
 def is_full_coverage(sequences):
+    is_forward_covered = True
+    is_reversed_covered = True
     for seq, covered in sequences.items():
-        if(not covered[0] or not covered[1]):
-            return False
-    return True
+        if not covered[0]:
+            is_forward_covered = False
+            if not is_forward_covered and not is_reversed_covered:
+                break
+        if not covered[1]:
+            is_reversed_covered = False
+            if not is_forward_covered and not is_reversed_covered:
+                break
+    return (is_forward_covered, is_reversed_covered)
 
 def sort_primers_on_amplifiability(all_forward_primers, all_reverse_primers, covered_sequences):
     temp_forward_primers = []
-    # is this the correct way to check whether there is still something in the heapq?
     while(not all_forward_primers.isEmpty()):
         cur_primer = all_forward_primers.heappop()
         already_in_there = 0
@@ -566,7 +646,6 @@ def sort_primers_on_amplifiability(all_forward_primers, all_reverse_primers, cov
         heappush(all_forward_primers, (primer[0], primer[1]))
     
     temp_reverse_primers = []
-    # is this the correct way to check whether there is still something in the heapq?
     while(not all_reverse_primers.isEmpty()):
         cur_primer = all_reverse_primers.heappop()
         already_in_there = 0
@@ -577,11 +656,12 @@ def sort_primers_on_amplifiability(all_forward_primers, all_reverse_primers, cov
     for primer in temp_reverse_primers:
         heappush(all_reverse_primers, (primer[0], primer[1]))
 
-# there is no need here to update how many sequences every primer covers as that is done before every local search anyway right?
-def remove_X_primers(solution, percentage_to_remove, amplicon, primer_index, differences, sequences):
+def remove_X_primers(solution, percentage_to_remove, amplicon, primer_index, sequences):
     amount_to_remove = len(solution) * percentage_to_remove
     np.random.shuffle(solution)
     new_partial_solution = solution[amount_to_remove:] # this takes a sublist from the shuffled original
+    min_temp = new_partial_solution[0].temperature
+    max_temp = min_temp
     new_all_forward_primers = []
     new_all_reverse_primers = []
     new_covered_sequences = {}
@@ -589,28 +669,29 @@ def remove_X_primers(solution, percentage_to_remove, amplicon, primer_index, dif
         for primer in amplicon.primers['forward'][sequence]:
             cur_forward_primer = primer_index.index2primer['forward'][primer]
             if (cur_forward_primer not in new_all_forward_primers) and (cur_forward_primer not in new_partial_solution) and (cur_forward_primer.feasible):
-                # assumption is made here that # sequences that are covered by primer is equal to the number of indices!
-                # these are already initialized right???
-                # maybe store primer ids on heap instead, but that is more for optimization
+                # assumption is made here that # sequences that are covered by primer is equal to the number of indices
                 heappush(new_all_forward_primers, (len(cur_forward_primer.indices), cur_forward_primer))
     for sequence in amplicon.primers['reverse']:
         for primer in amplicon.primers['reverse'][sequence]:
             cur_reverse_primer = primer_index.index2primer['reverse'][primer]
             if (cur_reverse_primer not in new_all_reverse_primers) and (cur_reverse_primer not in new_partial_solution) and (cur_reverse_primer.feasible):
                 heappush(new_all_reverse_primers, (len(cur_reverse_primer.indices), cur_reverse_primer))
-    # todo: fix the sequence coverage
     for sequence in sequences:
-            # i.e. if this sequence can be differentiated somewhere
-            if np.sum(differences[sequence]) != 0:
-                new_covered_sequences[sequence] = (False, False)
+        new_covered_sequences[sequence.id] = (False, False)
     for primer in new_partial_solution:
+        if primer.temperature < min_temp:
+            min_temp = primer.temperature
+        if primer.temperature > max_temp:
+            max_temp = primer.temperature
         for index in primer.indices:
             # need to check if these really are the values that primer.orientation takes
             if primer.orientation == 'forward':
                 new_covered_sequences[index[0]][0] = True
             else:
                 new_covered_sequences[index[0]][1] = True
-    return new_partial_solution, new_covered_sequences, new_all_forward_primers, new_all_reverse_primers
+    # to get correct amplifiability for primer tuples on the heaps
+    sort_primers_on_amplifiability(new_all_forward_primers, new_all_reverse_primers, new_covered_sequences)
+    return new_partial_solution, new_covered_sequences, new_all_forward_primers, new_all_reverse_primers, min_temp, max_temp
 
 
 
