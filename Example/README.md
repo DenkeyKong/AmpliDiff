@@ -7,7 +7,7 @@ To run AmpliDiff on this dataset, use the following command (assuming you are in
 ```bash
 python ../AmpliDiff/AmpliDiff.py sequences_aligned.fasta metadata.tsv -o Example_output/
 ```
-Note that we set `--min_non_align` to 50 in order to make sure that there are 50 nucleotides surrounding every amplicon candidate, while other parameters are left as default.
+
 Running the above command should give the following output:
 ```
 Reading sequences
@@ -37,4 +37,4 @@ Running greedy algorithm
 ...
 Done running greedy algorithm
 ```
-with a list of primers before the final line. The primers can now be found in `Example_output/primers_0.fasta`. As can be seen, there are only 4 amplicons since after the 4th amplicon every pair of sequences with different lineages can be discriminated.
+with a list of primers before the final line. The primers can now be found in `Example_output/primers_0.fasta`. As can be seen, there are only 4 amplicons (and a total of 16 primers) since after the 4th amplicon every pair of sequences with different lineages can be discriminated.
