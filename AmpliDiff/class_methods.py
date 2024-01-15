@@ -386,6 +386,7 @@ def check_primer_feasibility_single_amplicon_full_coverage(sequences, amplicon, 
             -list with sequences for which the amplicon has binding forward AND reverse primers
 
     '''
+
     return check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, amplicon, differences, primer_index, temperature_range)
 
     #Start environment and disable output logging
@@ -484,13 +485,18 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
         all_forward_primers = []
         all_reverse_primers = []
         covered_sequences = {} # dictionary for sequence coverage: (seq id -> (bool, bool)) where bool determines whether there is a primer for that direction (either forward or reverse)
-        # initialization of sequences. sequences is list of sequence objects.
-        for sequence in sequences:
-            covered_sequences[sequence.id] = (False, False)
+        # AMPLICON PRIMERSET DOES NOT DO SHIT, there's one reverse primer in there
+        print("all forward priemrs")
+        for primer in amplicon.full_primerset['forward']:
+            print(primer)
+        print("all reverse primers")
+        for primer in amplicon.full_primerset['reverse']:
+            print(primer)
         for sequence in amplicon.primers['forward']:
+            # this doesn't find anything; there are no primers in the amplicon
             for primer in amplicon.primers['forward'][sequence]:
                 cur_forward_primer = primer_index.index2primer['forward'][primer]
-                # do we need to check whether primer is feaisble before adding?
+                # do we need to check whether primer is feasible before adding?
                 if cur_forward_primer not in all_forward_primers:
                     # assumption is made here that # sequences that are covered by primer is equal to the number of indices!
                     # above is wrong, as not all indices are part of the input...
@@ -505,6 +511,7 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
         for sequence in amplicon.primers['reverse']:
             for primer in amplicon.primers['reverse'][sequence]:
                 cur_reverse_primer = primer_index.index2primer['reverse'][primer]
+                # doesnt work atm as it should check for the tuple
                 if cur_reverse_primer not in all_reverse_primers:
                     differentiability = 0
                     for index in cur_reverse_primer.indices:
@@ -514,6 +521,8 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
                                 break
                     # does still add for differentiability of 0 atm
                     heappush(all_reverse_primers, (differentiability, cur_reverse_primer))
+        for sequence in sequences:
+            covered_sequences[sequence.id] = (False, False)
         # solution contains only primers, not (amplifiability, primer) tuples
         new_solution = do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, None, None)
         best_solution = new_solution
@@ -550,14 +559,10 @@ def do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_pri
     for loc_search in range(num_local_search_iterations):
         has_feasible_solution = True
         is_forward_covered, is_reversed_covered = is_full_coverage(covered_sequences)
-        print(is_forward_covered, is_reversed_covered)
         while(not is_forward_covered and not is_reversed_covered):
             # find compatible forward primer if still needed
-            # !!!: currently issue here, either with assignement but possibly also still in while loop logic regarding primer_compatibility.
             cur_forward_primer = None
             primer_compatibility = False
-            print(len(all_forward_primers))
-            print(len(all_reverse_primers))
             while(not primer_compatibility and not is_forward_covered):
                 cur_forward_primer = all_forward_primers[0] # peek at top of heap
                 primer_compatibility = True
