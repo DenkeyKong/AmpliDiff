@@ -387,7 +387,8 @@ def check_primer_feasibility_single_amplicon_full_coverage(sequences, amplicon, 
 
     '''
 
-    return check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, amplicon, differences, primer_index, temperature_range)
+    if not feasibility_check:
+        return check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, amplicon, differences, primer_index, temperature_range)
 
     #Start environment and disable output logging
     env = gp.Env(empty=True)
@@ -481,14 +482,6 @@ X_perturbance = 0.75
 X_local_search = 0.25
 
 def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, amplicon, differences, primer_index, temperature_range=5):
-        
-        # AMPLICON PRIMERSET DOES NOT DO ANYTHING, there's one reverse primer in there
-        print("all forward priemrs")
-        for primer in amplicon.full_primerset['forward']:
-            print(primer)
-        print("all reverse primers")
-        for primer in amplicon.full_primerset['reverse']:
-            print(primer)
 
         # initialise sequences and whether they are covered
         covered_sequences = {} # dictionary for sequence coverage: (seq ID -> (Bool, Bool)) where Bool determines whether there is a primer for that direction (either forward or reverse)
