@@ -18,6 +18,10 @@ class Primer:
                 return other.sequence == self.sequence
         except:
             return False
+
+    # fix this later
+    def __lt__(self, other):
+        return True
         
     def add_sequence(self, sequence, sequence_index):
         '''
