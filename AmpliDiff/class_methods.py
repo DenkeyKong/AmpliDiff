@@ -487,14 +487,13 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
         best_solution_size = []
         found_solution_size = []
         did_find_feasible_solution = []
-        
+
         # initialise sequences and whether they are covered
-        covered_sequences = {} # dictionary for sequence coverage: (seq ID -> (Bool, Bool)) where Bool determines whether there is a primer for that direction (either forward or reverse)
-        sequence_dict = {} # dictionary for sequence IDs to sequence objects: (seq ID -> seq)
+        covered_sequences = {} # dictionary for sequence coverage: (seq ID num -> [Bool, Bool]) where Bool determines whether there is a primer for that direction (either forward or reverse)
+        sequence_dict = {} # dictionary for sequence IDs to sequence objects: (seq ID num -> seq)
         for sequence in sequences:
-            # CHANGE THIS TO ID_NUM
-            covered_sequences[sequence.id] = (False, False)
-            sequence_dict[sequence.id] = sequence
+            covered_sequences[sequence.id_num] = [False, False]
+            sequence_dict[sequence.id_num] = sequence
 
         # initialise primer sets
         # the primer lists contain tuples of (differentiability, primer)
@@ -511,39 +510,43 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
                     if cur_primer not in map(lambda x: x[1], primer_list) and cur_primer.feasible:
                         differentiability = 0
                         for index in cur_primer.indices:
-                            print("it's the index!")
-                            print(index)
-                            # doesnt work at the moment...
                             if index in covered_sequences:
-                                # never gets here...
-                                differentiability += 1
-                        if differentiability > 0:
+                                # heapq is a min heap
+                                differentiability -= 1
+                        if differentiability < 0:
                             heappush(primer_list, (differentiability, cur_primer))
-        
-        # solution contains only primers, not (differentiability, primer) tuples
-        currently_used_primers = []
-        primer_penalties = {} # dict from (primer seq -> primer[]) where primer[] contains all primers that the primer has had conflicts with
-        temp_penalties = {} # dict from (primer seq -> primer[]) where primer[] contains all primers that could not be added due to the temperature of primer
+        print("total reverse primers:")
+        print(len(all_reverse_primers))
+
+        currently_used_primers = [] # solution contains only primers, not (differentiability, primer) tuples
+        primer_penalties = {} # dict from (primer seq -> primer seq set) where the set contains all primer sequences that the primer has had conflicts with
+        temp_penalties = {} # dict from (primer seq -> primer seq set) where the set contains all primer sequences that could not be added due to the temperature of the key primer
         new_solution, all_forward_primers, all_reverse_primers, covered_sequences, min_temp_primer, max_temp_primer = do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, None, None, primer_penalties, temp_penalties)
         best_solution = new_solution
 
         for pert in range(num_perturbances):
+            print(primer_penalties)
             new_starting_point, covered_sequences, all_forward_primers, all_reverse_primers, min_temp_primer, max_temp_primer = remove_X_primers(best_solution, X_perturbance, amplicon, primer_index, sequences)
             new_solution, all_forward_primers, all_reverse_primers, covered_sequences, min_temp_primer, max_temp_primer = do_search_cycle(new_starting_point, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties)
             if new_solution is not None:
                 if best_solution is None or (len(new_solution) < len(best_solution)):
                     best_solution = new_solution
         
-        print("Final solution size!!!")
-        print(len(best_solution))
+        print("FINAL SOLUTION SIZE!!!")
 
         # final primer set for output
         final_solution = {'forward': [], 'reverse': []}
+        print("TEMPS OF THE PRI!MERS\n\n\n\n\n")
         for primer in best_solution:
+            print(primer.temperature)
             if primer.orientation == 'forward':
                 final_solution['forward'].append(primer.sequence)
             else:
                 final_solution['reverse'].append(primer.sequence)
+        print("forward primers: ")
+        print(len(final_solution['forward']))
+        print("reverse primers: ")
+        print(len(final_solution['reverse']))
 
         # covered sequences for output
         properly_covered_sequences = []
@@ -558,66 +561,118 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
 def do_search_cycle(currently_used_primers, all_forward_primers, all_reverse_primers, covered_sequences, amplicon, primer_index, sequences, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties):
     # initially there is no best solution
     best_solution = None
-    solution = currently_used_primers
-    
+    # copy, because we might want to revert to the initially given solution if we fail to find a feasible one.
+    solution = currently_used_primers.copy()
+
     for loc_search in range(num_local_search_iterations):
         has_feasible_solution = True
         is_forward_covered, is_reversed_covered = is_full_coverage(covered_sequences)
-        while(not is_forward_covered and not is_reversed_covered):
+        while(not is_forward_covered or not is_reversed_covered):
+            print("total reverse primers options:")
+            print(len(all_reverse_primers))
             if not is_forward_covered:
-                cur_forward_primer, min_temp_primer, max_temp_primer = find_compatible_primer(all_forward_primers, solution, primer_index, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties)
+                cur_forward_primer = find_compatible_primer(all_forward_primers, solution, primer_index, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties)
                 if cur_forward_primer is None:
                     has_feasible_solution = False
+                    print("no forward primers left!")
                     break
             if not is_reversed_covered:
-                cur_reverse_primer, min_temp_primer, max_temp_primer = find_compatible_primer(all_reverse_primers, solution, primer_index, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties)
+                cur_reverse_primer = find_compatible_primer(all_reverse_primers, solution, primer_index, temperature_range, min_temp_primer, max_temp_primer, primer_penalties, temp_penalties)
                 if cur_reverse_primer is None:
                     has_feasible_solution is False
+                    print("no reverse primers left!")
                     break
 
             # in case all forward primers are already covered
             if is_forward_covered:
                 heappop(all_reverse_primers)
                 solution.append(cur_reverse_primer[1])
+                print("adding reverse primer covering this many sequences (all forward is already covered)")
+                print(cur_reverse_primer[0])
                 for index in cur_reverse_primer[1].indices:
                     # check whether this sequence was part of the input sequences
                     if index in covered_sequences:
                         covered_sequences[index][1] = True
+                # update or initialise min/max temperature of the current solution
+                if min_temp_primer is None:
+                    min_temp_primer = cur_reverse_primer[1]
+                    max_temp_primer = min_temp_primer
+                elif cur_reverse_primer[1].temperature > max_temp_primer.temperature:
+                    max_temp_primer = cur_reverse_primer[1]
+                elif cur_reverse_primer[1].temperature < min_temp_primer.temperature:
+                    min_temp_primer = cur_reverse_primer[1]
             elif is_reversed_covered:
                 heappop(all_forward_primers)
                 solution.append(cur_forward_primer[1])
+                print("adding forward primer covering this many sequences (all reverse is already covered)")
+                print(cur_forward_primer[0])
                 for index in cur_forward_primer[1].indices:
                     if index in covered_sequences:
                         covered_sequences[index][0] = True
-            elif cur_forward_primer[0] > cur_reverse_primer[0]:
+                if min_temp_primer is None:
+                    min_temp_primer = cur_forward_primer[1]
+                    max_temp_primer = min_temp_primer
+                elif cur_forward_primer[1].temperature > max_temp_primer.temperature:
+                    max_temp_primer = cur_forward_primer[1]
+                elif cur_forward_primer[1].temperature < min_temp_primer.temperature:
+                    min_temp_primer = cur_forward_primer[1]        
+            elif cur_forward_primer[0] < cur_reverse_primer[0]:
                 heappop(all_forward_primers)
                 # only add the primer, not how many sequences it covers
                 solution.append(cur_forward_primer[1])
+                print("adding forward primer covering this many sequences:")
+                print(cur_forward_primer[0])
                 for index in cur_forward_primer[1].indices:
                     if index in covered_sequences:
                         covered_sequences[index][0] = True # get sequence ID from sequence indices from primer and set those to True
+                if min_temp_primer is None:
+                    min_temp_primer = cur_forward_primer[1]
+                    max_temp_primer = min_temp_primer
+                elif cur_forward_primer[1].temperature > max_temp_primer.temperature:
+                    max_temp_primer = cur_forward_primer[1]
+                elif cur_forward_primer[1].temperature < min_temp_primer.temperature:
+                    min_temp_primer = cur_forward_primer[1]
             else:
                 heappop(all_reverse_primers)
                 solution.append(cur_reverse_primer[1])
+                print("adding reverse primer covering this many sequences:")
+                print(cur_reverse_primer[0])
                 for index in cur_reverse_primer[1].indices:
                     if index in covered_sequences:
                         covered_sequences[index][1] = True
+                if min_temp_primer is None:
+                    min_temp_primer = cur_reverse_primer[1]
+                    max_temp_primer = min_temp_primer
+                elif cur_reverse_primer[1].temperature > max_temp_primer.temperature:
+                    max_temp_primer = cur_reverse_primer[1]
+                elif cur_reverse_primer[1].temperature < min_temp_primer.temperature:
+                    min_temp_primer = cur_reverse_primer[1]
             is_forward_covered, is_reversed_covered = is_full_coverage(covered_sequences)
+            print("coverage now:")
+            print((is_forward_covered, is_reversed_covered))
             # sort at end, as first loop will always be sorted anyways through either remove_X or the initial heaps creation
             all_forward_primers, all_reverse_primers = sort_primers_on_differentiability(all_forward_primers, all_reverse_primers, covered_sequences)
-        if has_feasible_solution and ((best_solution is None) or (len(solution) < len(best_solution))):
+        if has_feasible_solution and is_forward_covered and is_reversed_covered and ((best_solution is None) or (len(solution) < len(best_solution))):
+                print("updating best solution!")
                 best_solution = solution
-        if has_feasible_solution:
-            print("has feasible solution")
-        else:
-            print("NO feasible solution")
         # if there is no feasible solution, simply look at best solution again
         if best_solution is None:
             # if there is no best solution, reset to start of this local search iteration and try again with updated penalty dictionaries
-            print("first solution was infeasible")
+            print("solution was infeasible, resetting to this initial solution size:")
+            print(len(currently_used_primers))
             solution, covered_sequences, all_forward_primers, all_reverse_primers, min_temp_primer, max_temp_primer = remove_X_primers(currently_used_primers, 0, amplicon, primer_index, sequences)
         else:
             solution, covered_sequences, all_forward_primers, all_reverse_primers, min_temp_primer, max_temp_primer = remove_X_primers(best_solution, X_local_search, amplicon, primer_index, sequences)
+    # fix covered_sequences at end of loop
+    if best_solution is not None:
+        for primer in best_solution:
+            for sequence in primer.indices:
+                if primer.orientation == 'forward':
+                    covered_sequences[sequence][0] = True
+                else:
+                    covered_sequences[sequence][1] = True
+    print("coverage of sequences after local search:")
+    print(is_full_coverage(covered_sequences))
     return best_solution, all_forward_primers, all_reverse_primers, covered_sequences, min_temp_primer, max_temp_primer
 
 # determines whether all sequences are covered in the 2 directions
@@ -642,57 +697,71 @@ def find_compatible_primer(primer_list, solution, primer_index, temperature_rang
     while(not is_primer_compatible):
             # in case there are no more possible primers
             if len(primer_list) == 0:
-                return None, -1, -1
+                return None
             cur_primer = primer_list[0] # peek at top of heap
             is_primer_compatible = True
             # check for primer primer compatibility
             for primer in solution:
                 # assuming that a check_conflict is always assigned and never yields -1
-                if primer_index.check_conflict((cur_primer[1], primer)) == 1:
-                    conflict_cur_primer = primer_penalties.get(cur_primer[1].sequence, [])
-                    if primer not in conflict_cur_primer:
-                        conflict_cur_primer.append(primer)
-                    conflict_other_primer = primer_penalties.get(primer.sequence, [])
-                    if cur_primer[1] not in conflict_other_primer:
-                        conflict_other_primer.append(cur_primer[1])
+                if primer_index.check_conflict([primer, cur_primer[1]]) == 1:
+                    print("primer has conflict with other primer")
+                    if cur_primer[1].sequence not in primer_penalties:
+                        primer_penalties[cur_primer[1].sequence] = {primer.sequence}
+                    else:
+                        primer_penalties[cur_primer[1].sequence].add(primer.sequence)
+                    
+                    if primer.sequence not in primer_penalties:
+                        primer_penalties[primer.sequence] = {cur_primer[1].sequence}
+                    else:
+                        primer_penalties[primer.sequence].add(cur_primer[1].sequence)
+
                     is_primer_compatible = False
                     break
             # chance of adding primers lessens based on conflicts it has had with other primers
-            if randrange(0, len(primer_penalties.get(cur_primer[1].sequence, [])) + 1) != 0:
-                print("removed primer due to penalty")
-                is_primer_compatible = False
-                    
+            if cur_primer[1].sequence in primer_penalties:
+                print("primer has ahd conflicts before")
+                if randrange(0, len(primer_penalties[cur_primer[1].sequence]) + 1) != 0:
+                    print("removed primer due to conflict penalty")
+                    is_primer_compatible = False
+
+            # is temp check not already contained in primer primer compatibility check?
             if is_primer_compatible:
                 # do temperature check
                 cur_primer_temp = cur_primer[1].temperature
-                # i.e. this is the first primer we add
-                if max_temp_primer is None:
-                    max_temp_primer = cur_primer[1]
-                    min_temp_primer = cur_primer[1]
-                if (cur_primer_temp - min_temp_primer.temperature <= temperature_range) and (max_temp_primer.temperature - cur_primer_temp <= temperature_range):
-                    if cur_primer_temp < min_temp_primer.temperature:
-                        min_temp_primer = cur_primer[1]
-                    if cur_primer_temp > max_temp_primer.temperature:
-                        max_temp_primer = cur_primer[1]
-                else:
+                # if there is no primer in the solution yet, we do not check for temperature
+                if max_temp_primer is not None:
                     # primer cannot be added because its temp is too high
                     if not (cur_primer_temp - min_temp_primer.temperature <= temperature_range):
-                        min_temp_primer_penalty = temp_penalties.get(min_temp_primer.sequence, [])
-                        if cur_primer[1] not in min_temp_primer_penalty:
-                            min_temp_primer_penalty.append(cur_primer[1])
+                        if min_temp_primer.sequence not in temp_penalties:
+                            temp_penalties[min_temp_primer.sequence] = {cur_primer[1].sequence}
+                        else:
+                            temp_penalties[min_temp_primer.sequence].add(cur_primer[1].sequence)
+                        
+                        if cur_primer[1].sequence not in temp_penalties:
+                            temp_penalties[cur_primer[1].sequence] = {min_temp_primer.sequence}
+                        else:
+                            temp_penalties[cur_primer[1].sequence].add(min_temp_primer.sequence)
+                        is_primer_compatible = False
                     # primer cannot be added because its temp is too low
                     elif not (max_temp_primer.temperature - cur_primer_temp <= temperature_range):
-                        max_temp_primer_penalty = temp_penalties.get(max_temp_primer.sequence, [])
-                        if cur_primer[1] not in max_temp_primer_penalty:
-                            max_temp_primer_penalty.append(cur_primer[1])
-                    is_primer_compatible = False
+                        if max_temp_primer.sequence not in temp_penalties:
+                            temp_penalties[max_temp_primer.sequence] = {cur_primer[1].sequence}
+                        else:
+                            temp_penalties[max_temp_primer.sequence].add(cur_primer[1].sequence)
+                        
+                        if cur_primer[1].sequence not in temp_penalties:
+                            temp_penalties[cur_primer[1].sequence] = {max_temp_primer.sequence}
+                        else:
+                            temp_penalties[cur_primer[1].sequence].add(max_temp_primer.sequence)
+                        is_primer_compatible = False
                 # chance of adding primer lessens based on number of other primers its temperature clashes with
-                if randrange(0, len(temp_penalties.get(cur_primer[1].sequence, [])) + 1) != 0:
-                    print("removed primer due to penalty")
-                    is_primer_compatible = False
+                if cur_primer[1].sequence in temp_penalties:
+                    if randrange(0, len(temp_penalties[cur_primer[1].sequence]) + 1) != 0:
+                        print("removed primer due to temp penalty")
+                        is_primer_compatible = False
             if not is_primer_compatible:
                 heappop(primer_list)
-    return cur_primer, min_temp_primer, max_temp_primer
+    return cur_primer
 
 # updates differentiability of the primers, returns updated lists
 def sort_primers_on_differentiability(all_forward_primers, all_reverse_primers, covered_sequences):
@@ -707,7 +776,9 @@ def sort_primers_on_differentiability(all_forward_primers, all_reverse_primers, 
                     already_in_there += 1
             else:
                 not_part_of_input += 1
-        updated_forward_primers.append((len(cur_primer[1].indices) - already_in_there - not_part_of_input, cur_primer[1]))
+        differentiability = len(cur_primer[1].indices) - already_in_there - not_part_of_input
+        if differentiability > 0:
+            updated_forward_primers.append((-1 * differentiability, cur_primer[1]))
     heapify(updated_forward_primers)
     
     updated_reverse_primers = []
@@ -721,21 +792,32 @@ def sort_primers_on_differentiability(all_forward_primers, all_reverse_primers, 
                     already_in_there += 1
             else:
                 not_part_of_input += 1
-        updated_reverse_primers.append((len(cur_primer[1].indices) - already_in_there - not_part_of_input, cur_primer[1]))
+        differentiability = len(cur_primer[1].indices) - already_in_there - not_part_of_input
+        if differentiability > 0:
+            updated_reverse_primers.append((-1 * differentiability, cur_primer[1]))
     heapify(updated_reverse_primers)
     
     return updated_forward_primers, updated_reverse_primers
 
 # removes a percentage of primers from the given solution, then recreates heaps and covered_sequences
 def remove_X_primers(solution, percentage_to_remove, amplicon, primer_index, sequences):
-    amount_to_remove = int(len(solution) * percentage_to_remove)
-    np.random.shuffle(solution)
-    print(amount_to_remove)
-    new_partial_solution = solution[amount_to_remove:] # this takes a sublist from the shuffled original
-    if len(new_partial_solution) != 0:
-        min_temp_primer = new_partial_solution[0]
-        max_temp_primer = min_temp_primer
+    if solution is not None:    
+        amount_to_remove = int(len(solution) * percentage_to_remove)
+        # always remove at least 1 primer
+        if amount_to_remove < 1 and percentage_to_remove != 0:
+            amount_to_remove = 1
+        np.random.shuffle(solution)
+        print("removed this mnay primers:")
+        print(amount_to_remove)
+        new_partial_solution = solution[amount_to_remove:] # this takes a sublist from the shuffled original
+        if len(new_partial_solution) != 0:
+            min_temp_primer = new_partial_solution[0]
+            max_temp_primer = min_temp_primer
+        else:
+            min_temp_primer = None
+            max_temp_primer = min_temp_primer
     else:
+        new_partial_solution = []
         min_temp_primer = None
         max_temp_primer = min_temp_primer
     
@@ -750,12 +832,12 @@ def remove_X_primers(solution, percentage_to_remove, amplicon, primer_index, seq
             for primer in amplicon.primers[orientation][sequence]:
                 cur_primer = primer_index.index2primer[orientation][primer]
                 if cur_primer not in map(lambda x: x[1], primer_list) and cur_primer not in new_partial_solution and cur_primer.feasible:
-                    primer_list.append((-1, cur_primer))
-                    #heappush(primer_list, (0, cur_primer))
+                    # simply append, as will be turned into heap later
+                    primer_list.append((0, cur_primer))
     
     new_covered_sequences = {}
     for sequence in sequences:
-        new_covered_sequences[sequence.id] = (False, False)
+        new_covered_sequences[sequence.id_num] = [False, False]
 
     for primer in new_partial_solution:
         if primer.temperature < min_temp_primer.temperature:

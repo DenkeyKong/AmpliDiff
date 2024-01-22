@@ -305,7 +305,7 @@ class PrimerIndex():
         if primer_pair[0].orientation == 'forward' and primer_pair[1].orientation == 'reverse':
             orientation = ('f','r')
             pair = (self.primer2index['forward'][primer_pair[0].sequence], self.primer2index['reverse'][primer_pair[1].sequence])
-        elif primer_pair[1].orientation == 'reverse' and primer_pair[1].orientation == 'forward':
+        elif primer_pair[0].orientation == 'reverse' and primer_pair[1].orientation == 'forward':
             orientation = ('f','r')
             pair = (self.primer2index['forward'][primer_pair[1].sequence], self.primer2index['reverse'][primer_pair[0].sequence])
         else:
