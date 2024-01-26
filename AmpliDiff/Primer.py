@@ -19,7 +19,9 @@ class Primer:
         except:
             return False
 
-    # fix this later
+    # Please note that this comparison method does not work well atm. It is only there because the heapq needs to be able to compare both tuple elements.
+    # If one were to use this method properly for something else, please update it to work as needed.
+    # For the heuristic-based implementation it does not matter how it works, it just needs to exist.
     def __lt__(self, other):
         return True
         
