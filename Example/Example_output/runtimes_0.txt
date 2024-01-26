@@ -1,28 +1,28 @@
-Time spent generating sequences: 0.024478912353515625
-Time spent processing sequences and determining feasible amplicons: 1.93088960647583, number of feasible amplicons: 29343
-Time spent generating primer index and filtering for feasible primers: 50.09769058227539
-Time spent determining amplicon differentiabilities: 0.592482328414917
-Time spent running greedy algorithm: 8.291482210159302
+Time spent generating sequences: 0.026789426803588867
+Time spent processing sequences and determining feasible amplicons: 1.9533331394195557, number of feasible amplicons: 29343
+Time spent generating primer index and filtering for feasible primers: 57.519620418548584
+Time spent determining amplicon differentiabilities: 0.594984769821167
+Time spent running greedy algorithm: 9.708582162857056
 Amplicon: (22904, 23104)
 Forward primers
 >F0
 aggctgcgttatagcttggaattct
 >R0
-ttaggtccacaaacagttgctgatg
->R1
 gttgctggtgcatgtagaagttcaa
+>R1
+ttaggtccacaaacagttgctgatg
 Amplicon: (29509, 29709)
 Forward primers
 >F1
 cttcttcctgctgcagatttggatg
 >R2
-aaatgtggtggctctttcaagtcct
->R3
 aaatgtggtggctctttcaagtgct
+>R3
+aaatgtggtggctctttcaagtcct
 >R4
-atgtggtggctctttcaagtactcc
->R5
 atgtggtggctctttcaagttctcc
+>R5
+atgtggtggctctttcaagtactcc
 Amplicon: (10123, 10323)
 Forward primers
 >F2
@@ -34,6 +34,6 @@ Forward primers
 >F3
 acaggtgttgttggagaaggttccg
 >R7
-ctgttcaccaatattccaggcactt
->R8
 ctgttcaccaatattccaggcacct
+>R8
+ctgttcaccaatattccaggcactt

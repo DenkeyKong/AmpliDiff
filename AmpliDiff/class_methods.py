@@ -532,9 +532,13 @@ def check_primer_feasibility_single_amplicon_full_coverage_heuristic(sequences, 
         # write to output file for plotting
         with open('Example_output//heuristic_iterations_output.txt', 'a') as f:
             f.write('NEW AMPLICON BELOW HERE\n')
-            f.write('best solution sizes\tsolution sizes per iteration\twhether feasible solution was found per iteration\n')
+            f.write('iteration\tsolution sizes per iteration\tbest solution size\twhether feasible solution was found per iteration\n')
             for i in range(len(best_solution_size)):
-                f.write(str(best_solution_size[i]) + '\t' + str(found_solution_size[i]) + '\t' + str(did_find_feasible_solution[i]) + '\n')
+                if i == 0 or (i + 1) % 5 == 0:
+                    iteration = str(i + 1)
+                else:
+                    iteration = ''
+                f.write(iteration + '\t' + str(found_solution_size[i]) + '\t' + str(best_solution_size[i]) + '\t' + str(did_find_feasible_solution[i]) + '\n')
 
         # final primer set for output
         final_solution = {'forward': [], 'reverse': []}
